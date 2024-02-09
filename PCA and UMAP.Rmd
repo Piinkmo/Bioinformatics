@@ -1,0 +1,227 @@
+---
+header-includes:
+   - \usepackage{soul}
+   - \usepackage{color}
+output:
+     pdf_document:
+         latex_engine: xelatex
+         extra_dependencies: xcolor
+title:
+  Stat646-HW1
+  
+author:
+  Yuting Jia
+  
+encoding: UTF-8
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+# Question 1
+
+## Consider the human gene with HGNC symbol SPRR4.
+
+## (a) Use the Biomart Ensembl database to obtain cDNA and peptide sequences for SPRR4. Include both sequences.
+
+## (b) What are the Ensembl ID and Entrez ID for SPRR4?
+
+## (c) Retrieve gene ontology (GO) information for SPRR4. What biological process (BP) is the gene involved in? Include both the GO ID and term (e.g., GO:0006805 xenobiotic metabolic process).
+
+## (d) What other genes are involved in the above GO? Give their HGNC symbols.
+
+##
+
+```{r}
+# Clear current workspace.
+rm(list = ls())
+set.seed(1234)
+
+# Packages
+# install.packages('ggplot2')
+# if (!require("BiocManager", quietly = TRUE))
+#  install.packages("BiocManager")
+#BiocManager::install(c("Biostrings", "GenomicRanges", "org.Hs.eg.db", "biomaRt",
+#                       "clusterProfiler", "DOSE", "org.Hs.eg.db", "GO.db",
+#                      "GOSemSim", "enrichplot"))
+
+# BioMart databases.
+library(biomaRt)
+
+# Connect to BioMart dataset consisting of the Ensembl gene documentation.
+mart <- useMart(biomart = "ensembl", dataset = "hsapiens_gene_ensembl")
+
+listAttributes(mart)[1:10,]
+mapping <- getBM(attributes = c("hgnc_symbol", "ensembl_gene_id", "entrezgene_id"), mart = mart)
+head(mapping) # Enter gene symbols into the HGNC website to get their details
+tail(mapping) # Genes have HGNC symbol but does have an Ensembl ID.
+
+seqCdna <- getSequence(id="SPRR4", type="hgnc_symbol", seqType="cdna", mart = mart)
+show(seqCdna)
+
+seqPeptide <- getSequence(id="SPRR4", type="hgnc_symbol", seqType="peptide", mart = mart)
+show(seqPeptide)
+```
+
+```{r}
+# Convert gene symbol to Entrez Gene ID, and show both EID and Ensebl ID.
+library(org.Hs.eg.db)
+
+sprr4 <- unlist(mget('SPRR4', org.Hs.egSYMBOL2EG, ifnotfound = NA))
+mapping[which(mapping$hgnc_symbol == 'SPRR4'),]                
+
+```
+```{r}
+GO_sprr4 <- mget(sprr4, org.Hs.egGO)
+# GO_sprr4
+GOterm <- "GO:0031424"
+GOgenes <- mget(GOterm, org.Hs.egGO2ALLEGS)
+
+library(GO.db)
+
+GO_data = list(GOID(GOterm), Ontology(GOterm), Term(GOterm), Definition(GOterm))
+# Synonym(GOterm) & Secondary(GOterm) returns NA.
+GO_data
+
+df <- data.frame(GOgenes)
+GO_EID <- df$GO.0031424
+ls("package:org.Hs.eg.db")
+EID_symbols <- unlist(mget(GO_EID, org.Hs.egSYMBOL, ifnotfound=NA))
+EID_symbols
+
+```
+##
+
+# Question 2
+
+## Use the clusterProfiler package to perform a GO enrichment analysis using the genes from the above GO. In the enrichGO function, leave universe as missing and specify ont = "ALL".
+
+## (a) What is the purpose of leaving universe as missing?
+
+## (b) What is the purpose of specifying ont = "ALL"?
+
+## (c) What are the top three most significantly enriched GO (IDs + terms)? Does the result make sense?
+
+## (d) Use the emapplot cluster function from the enrichplot package to visualize the enrichment result. Attach your plot.
+
+##
+
+
+```{r}
+library(clusterProfiler)
+library(AnnotationDbi)
+library(enrichplot)
+
+# Perform enrichment analysis
+ego<- enrichGO(gene = EID_symbols, 
+               keyType = "SYMBOL", 
+               OrgDb = org.Hs.eg.db,
+               ont = "ALL",  # Specifying ont = "ALL"
+               pAdjustMethod = "BH", 
+               pvalueCutoff = 0.05)
+
+head(ego, n = 3)
+```
+
+\hl{Part (a) and (b) Answers:}
+
+\hl{The "universe" provides a background gene list, without specifying it means that enrichGO function will use the default background set. It assesses wheter the gene set is enriched in GO:0031424 compared to the entire set of genes in the genome.}
+
+\hl{We know that GO can be divided into 3 main ontologies: BP, CC, MF. When we specifying ont to ALL, we are indicating to consider all 3 ontologies
+simultaneously in the enrichment analysis, which is to capture a broader picture of the functional categories associated with the genes from GO:0031424.}
+
+\hl{Part (c) Answers:}
+
+\hl{The top 3 most enriched GO terms are GO:0031424	keratinization, GO:0030216 keratinocyte differentiation, GO:0009913	epidermal cell differentiation. I specified a threshold at p = 0.05. Since these GO terms have p-values significantly less than 0.05, I think it makes sense that they are enriched.}
+
+```{r results='asis', message=FALSE, warning=FALSE}
+library(GOSemSim)
+
+d <- godata('org.Hs.eg.db', ont = "BP")
+ego2 <- pairwise_termsim(ego, method="Wang", semData = d)
+emapplot_cluster(ego2)
+#emapplot(ego2)
+```
+# Question 3
+
+```{r}
+mouse_liver_annot <- readRDS("~/Desktop/STAT-646/mouse_liver_annot.RDS")
+mouse_liver_cts <- readRDS("~/Desktop/STAT-646/mouse_liver_cts.RDS")
+# "mouse_liver_cts.RDS" is a gene expression matrix,
+# "mouse_liver_annot.RDS" is an annotation file associated with the gene expression data.
+# e.g. Fam214a is a gene. / AAACCCATCAGGAAAT-37 is a cell.
+dim(mouse_liver_cts) 
+# We have 2000 genes and 3802 cells assayed in this toy dataset.
+```
+
+```{r}
+annot <- as.matrix(mouse_liver_annot)
+cellTypes <- length(unique(unlist(apply(annot, 1, function(column) column[1]))))
+cellTypes
+
+# Extract the cell type with the highest count.
+# The table() used to generate a frequency table, which shows the counts of values
+primCell <- names(sort(table(annot[,1]), decreasing = TRUE))[1]
+primCell
+```
+```{r}
+cts <- as.matrix(mouse_liver_cts)
+
+# Assuming 'cell_types' is the column containing cell type information
+cell_types <- annot[,1]
+
+# Perform PCA
+pca1 <- prcomp(t(cts))
+
+# Create a data frame for visualization
+pca_df <- data.frame(PC1 = pca1$x[,1], PC2 = pca1$x[,2], CellType = cell_types)
+
+# Plot the first two principal components with colors corresponding to cell types
+library(ggplot2)
+
+ggplot(pca_df, aes(x = PC1, y = PC2, color = CellType)) +
+  geom_point() +
+  labs(title = "PCA",
+       x = "PC1",
+       y = "PC2") +
+  theme_minimal()
+
+# Apply UMAP to the top 10 PCs and visualize the UMAP-reduced dimensions with colors corresponding to cell types.
+library(umap)
+
+top10Pcs <- pca1$x[, 1:10]
+# Perform UMAP.
+umapPcs <- umap(top10Pcs)
+
+umap_df <- data.frame(UMAP1 = umapPcs$layout[,1], UMAP2 = umapPcs$layout[,2], CellType = cell_types)
+ggplot(umap_df, aes(x = UMAP1, y = UMAP2, color = CellType)) + 
+  geom_point() +
+  labs(title = "UMAP",
+       x = "UMAP1",
+       y = "UMAP2") + 
+  theme_minimal()
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
