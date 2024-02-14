@@ -1,0 +1,216 @@
+---
+header-includes:
+   - \usepackage{soul}
+   - \usepackage{color}
+output:
+     pdf_document:
+         latex_engine: xelatex
+         extra_dependencies: xcolor
+title:
+  Stat660-HW6
+  
+author:
+  Yuting Jia
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This exercise is to study whether systolic blood pressure and serum cholesterol are related, and whether smoking status (and later age) are factors in systolic blood pressure. Later, instead of having a continuous response, we will have a binary response, namely coronary heart disease.
+
+There are four systolic blood pressure measurements. Take their average and create the variable LSBP = log(SBP-50). This is a normalizing transformation that makes the histogram look better. Also, take the average of the two cholesterol measurements and take their logarithm, calling it Lcholest. At the end, you will work with chd, age, smoker, LSBP, Lcholest. When we do a generalized additive Faconva, we will get to see if they predict the onset of coronary heart disease.
+
+This exercise is (mostly) based on Lectures 6 and 7. I skipped one point in these lectures deliberately and you may be puzzled by one of the questions.
+
+Also, some of the questions are deliberately a bit vague. Do not fret: just do what you can. This sort of gives you an idea about what clients might ask.
+
+#  
+```{r}
+# Clear current workspace.
+rm(list = ls())
+set.seed(1234)
+
+# Set the working directory to where the raw data located.
+setwd("/users/yutingjia/desktop/stat-660/HW6")
+
+# Load libraries
+library(ggplot2)
+library(HRW)
+library(mgcv)
+
+# Import dataset
+framingham = read.csv("Framingham.csv")
+sbp21 = framingham$SBP21
+sbp22 = framingham$SBP22
+sbp31 = framingham$SBP31
+sbp32 = framingham$SBP32
+cholest2 = framingham$Cholest2
+cholest3 = framingham$Cholest3
+smoker = framingham$Smoker
+
+# Take the average of the SBP's and their logrithm.
+# Same for the cholesterol's.
+sbp = rowMeans(framingham[, c("SBP21", "SBP22", "SBP31", "SBP32")], na.rm = TRUE)
+LSBP = log(sbp-50)
+cholest = rowMeans(framingham[, c("Cholest2", "Cholest3")], na.rm = TRUE)
+Lcholest = log(cholest)
+
+```
+
+## Question 1.
+
+Fit a multiple linear regression of LSBP (Y) on Lcholest and smoker using mgcv::gam. Since the smoking variable is binary, this is an ordinary ANCOVA without an interaction. You will notice that the Rsquared is quite low. Produce a table of estimates, standard errors and p-values.
+
+```{r}
+model = gam(LSBP ~ Lcholest + factor(smoker)) 
+# We are interested in assessing the overall effect of smoking, a linear term.
+summary(model)
+```
+
+## Question 2
+
+Do a little bit of a web search about whether smokers have higher or lower blood pressure than nonsmokers. Does the analysis in (1) agree? Just give a coherent answer.
+
+\hl{According to web search, although cigarette smoking produces an acute rise in blood pressure (BP), results from epidemiologic studies have generally shown smokers to have lower BP than nonsmokers.}
+
+\hl{The estimated coefficient for the smoker variable is -0.03796 with a standard error of 0.01251. The t-value is -3.034, and the p-value is 0.00246, suggesting that being a smoker is associated with a significant decrease in the systolic blood pressure.}
+
+## Question 3
+
+In Question 1, there is a subtle statistical interpretation of what I am asking you to do, because your analysis also includes the transformed cholesterol variable. I am curious if you can produce the correct terminology for what that subtle interpretation is. Please, less than 15 words. This is a test of your background, but I want to make sure you know how to report results appropriately.
+
+\hl{Evaluate the joint impact of log-transformed cholesterol (Lcholest) and smoking on transformed systolic blood pressure (LSBP).}
+
+## Question 4
+
+Do the same thing as in Question 1 but add an interaction between Lcholest and smoker.
+
+```{r}
+model2 = gam(LSBP ~ Lcholest + factor(smoker) + Lcholest * factor(smoker))
+summary(model2)
+```
+
+## Question 5
+
+Now run a semiparametric regression using mgcv, one that is the semiparametric version of ANCOVA without an interaction.
+
+```{r}
+# Semiparametric regression without interaction.
+Fancova = gam(LSBP ~ factor(smoker) + s(Lcholest, k = 20), method = "REML", 
+              data = framingham)
+summary(Fancova)
+```
+
+## Question 6
+
+In Question 5, display a plot of the two lines, but without the data.
+
+```{r}
+plot(Lcholest,LSBP,type="n",
+     xlab="log(cholesterol)",
+     ylab="LSBP")
+ng = 1000
+# Sequence for prediction
+LcholestSeq = seq(min(Lcholest),max(Lcholest),length = ng)
+# Smoker
+fHatSmoker = predict(Fancova, 
+                     newdata = data.frame(Lcholest = LcholestSeq,smoker = rep("1",ng)))
+lines(LcholestSeq,fHatSmoker,col = "blue",lwd=2)
+# Non-Smoker
+fHatNonsmoker = predict(Fancova, 
+                        newdata = data.frame(Lcholest = LcholestSeq,smoker = rep("0",ng)))
+lines(LcholestSeq,fHatNonsmoker,col = "red", lwd=2, lty=2)
+
+#Add legend
+legend("topright", legend = c("Smoker", "Non-Smoker"), 
+       col = c("blue", "red"), lty = c(1, 2), lwd = 2)
+
+```
+
+## Question 7
+
+In Question 5, display a plot of the two lines but in one graph with 2 columns”: par(mfrow(1,2) does this, I believe, and also show their pointwise 95% confidence intervals.
+
+```{r}
+# Function to plot lines with confidence intervals
+plot_lines_ci <- function(model, title, color_smoker, color_nonsmoker) {
+
+  # Set up layout
+  par(mfrow = c(1, 2))
+  
+  # Plot for Smoker
+  plot(NULL, xlim = range(Lcholest), ylim = range(predict(model)),
+       xlab = "Lcholest", ylab = "LSBP", main = paste("Smoker"), col.main = color_smoker)
+  
+  fHatSmoker <- predict(model, newdata = data.frame(Lcholest = LcholestSeq, smoker = 1), 
+                        se = TRUE)
+  polygon(c(LcholestSeq, rev(LcholestSeq)),
+          c(fHatSmoker$fit + qnorm(0.975) * fHatSmoker$se, 
+            rev(fHatSmoker$fit - qnorm(0.975) * fHatSmoker$se)),
+          col = rgb(0, 0, 1, 0.2), border = NA)
+  lines(LcholestSeq, fHatSmoker$fit, col = "blue", lwd = 2)
+  
+  # Plot for Non-Smoker
+  plot(NULL, xlim = range(Lcholest), ylim = range(predict(model)),
+       xlab = "Lcholest", ylab = "LSBP", main = paste("Non-Smoker"), col.main = color_nonsmoker)
+  
+  fHatNonsmoker <- predict(model, newdata = data.frame(Lcholest = LcholestSeq, smoker = 0), 
+                           se = TRUE)
+  polygon(c(LcholestSeq, rev(LcholestSeq)),
+          c(fHatNonsmoker$fit + qnorm(0.975) * fHatNonsmoker$se, 
+            rev(fHatNonsmoker$fit - qnorm(0.975) * fHatNonsmoker$se)),
+          col = rgb(1, 0, 0, 0.2), border = NA)
+  lines(LcholestSeq, fHatNonsmoker$fit, col = "red", lwd = 2, lty = 2)
+  
+  # Add legend
+  legend("topright", legend = c("Smoker", "Non-Smoker"), 
+         col = c("blue","red"), lty = c(1, 2), lwd = 2)
+}
+
+# Display two plots with confidence intervals
+plot_lines_ci(Fancova, " ", "blue", "red")
+```
+
+## Question 8
+
+Run the semiparametric version of ANCOVA but with an interaction. Does it look like there is an interaction? Cite p-values and estimates.
+
+```{r}
+# Semi regression with interaction.
+FancovaIA = gam(LSBP ~ factor(smoker) + s(Lcholest, k = 20, by = factor(smoker)))
+summary(FancovaIA)$s.table
+```
+\hl{The output indicates a significant interaction between Lcholest and smoker as the p-values associated with the smooth terms for Lcholest by Non-Smoker(smoker0) = 0.0117 and Lcholest by Smoker(smoker1) = 2.24e-05 are both below 0.05. This suggests that there is a statistically significant difference in the relationship between Lcholest and the response variable for non-smokers and smokers, indicating the presence of an interaction effect.}
+
+## Question 9
+
+In Question 8, display the fits but without the data points.
+
+```{r}
+par(mfrow=c(1,3))
+
+plot(Fancova, main = "No Interaction", col = "deepskyblue", lwd=2)
+plot(FancovaIA, main = "With Interaction", col = "olivedrab3", lwd=2)
+```
+
+
+## Question 10
+
+What does having an interaction mean in the case when the factors are binary?
+
+\hl{Having an interaction implies that the effect of one binary factor on the response variable depends on the level of the other binary factor. In other words, the relationship between the response variable and one binary factor is not the same for both levels of the other binary factor.}
+
+\hl{Specifically, in our model with an interaction term between Lcholest and smoker, it suggests that the effect of the smoothed function of Lcholest on the response variable LSBP is different for smokers and non-smokers. Which is that the incluence of serum cholesterol on systolic blood pressure is not constant across Smoker and Non-Smoker.}
+
+## Question 11
+
+Now run an analysis of whether the two lines (smoker versus nonsmoker) are statistically significantly different when there is no interaction. You might remember that we contrasted the Srod district with the other Warsaw districts at one point. This can be your guide. Luckily, here smoker is a binary variable, so the reference population is the 
+
+```{r}
+lrt = anova(Fancova, FancovaIA, test = "F")
+print(lrt)
+```
+\hl{The p-value associated with the comparison of these two models is "NA," suggesting that there is not enough evidence to reject the null hypothesis that the model without interaction is as good as the model with interaction.}
+
+\hl{Based on this test, there is no statistically significant difference between the two lines (smoker versus nonsmoker) when there is no interaction.}
