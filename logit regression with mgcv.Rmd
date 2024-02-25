@@ -1,0 +1,156 @@
+---
+header-includes:
+   - \usepackage{soul}
+   - \usepackage{color}
+output:
+     pdf_document:
+         latex_engine: xelatex
+         extra_dependencies: xcolor
+title:
+  Stat660-HW7
+  
+author:
+  Yuting Jia
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## You have the Framingham Heart Study data on Canvas, along with a .pdf file describing the data. The response is Y = CHD. The predictors are LSBP, Lcholest, age and smoking status.
+
+## Remember, at some point in time programs required that you must change the response to be numeric, with values of 0 and 1. This changes for some versions of R, including mgcv::gam.
+
+```{r}
+# Clear current workspace.
+rm(list = ls())
+set.seed(1234)
+
+# Set the working directory.
+setwd("/users/yutingjia/desktop/stat-660/HW7")
+
+# Load libraries
+library(ggplot2)
+library(HRW)
+library(mgcv)
+
+# Import dataset
+framingham <- read.csv("Framingham.csv")
+sbp = rowMeans(framingham[, c("SBP21", "SBP22", "SBP31", "SBP32")], na.rm = TRUE)
+LSBP = log(sbp-50)
+cholest = rowMeans(framingham[, c("Cholest2", "Cholest3")], na.rm = TRUE)
+Lcholest = log(cholest)
+Smoker = framingham$Smoker
+```
+***
+
+## 1. Fit an ordinary logistic regression with response = CHD, and predictor = Age. Show the summary table. Remember, in mgcv::gam you may need to declare CHD as numeric.
+
+```{r}
+# response = CHD, in mgcv::gam declare CHD as numeric.
+chd <- as.numeric(framingham$CHD)
+# predictor = Age.
+age <- framingham$Age
+
+# Ordinary logistic regression
+logitModel <- mgcv::gam(chd ~ age, data = framingham, family = binomial)
+
+summary(logitModel)
+```
+
+***
+
+## 2. In Question 1, display the fit without the data points. Just plot the model object. We know that when plotting the model object, mgcv::gam ignores the intercept.
+
+```{r}
+pred <- predict(logitModel, type = "response")
+
+# Plot
+plot(age, chd, type="n", xlab="Age", ylab="CHD", main = "CHD vs Age")
+lines(pred, lwd=2, col = "salmon")
+```
+
+***
+
+## 3. In Question 1, is the fit statistically significant?
+
+\hl{Answer:}
+
+\hl{Yes, the fit of logistic regression is statistically significant. In output from Question 1, the extremely small p-value indicates strong evidence against null hypothesis and conclude that the intercept is statistically significant.}
+
+***
+
+## 4. In Question 1, test whether the fit is linear or quadratic versus the need to do a semiparametric fit, i.e., a spline in age.
+
+```{r}
+# Linear model
+linearModel <- gam(chd ~ age, data = framingham, family = binomial)
+summary(linearModel)
+# Quadratic model
+quadraModel <- gam(chd ~ poly(age, 2), data = framingham, family = binomial)
+summary(quadraModel)
+
+# Likelihood Ratio test
+# A small p-value indicate that the more complex model (original model with smooth term) is statistically preferred.
+anova(linearModel, logitModel, test = "Chisq")
+anova(quadraModel, logitModel, test = "Chisq")
+
+```
+
+***
+
+## 5. Fit a logistic gam with all the predictors but only LSBP modeled as a spline.
+
+a. Quote the p-values for all of the predictors.
+
+b. Answer whether the fit suggests that LSBP should be modeled as a spline. Remember, you need to do an ANOVA for this will the null model having everything modeled as ordinary logistic regression.
+
+```{r}
+# Fit a logistic gam with all the predictors but only LSBP modeled as a spline.
+logitfit <- gam(chd ~ s(LSBP) + Lcholest + age + Smoker, 
+                data = framingham, family = binomial)
+summaryTable <- summary(logitfit)
+
+# a. Quote the p-values for all of the predictors
+summaryTable[["p.pv"]]
+
+# b. 
+nullModel <- glm(chd ~ LSBP + Lcholest + age + Smoker, 
+                 family = binomial, data = framingham)
+anova(nullModel, logitfit, test = "Chisq")
+
+```
+\hl{Answer:}
+
+\hl{The p-value = 0.0913 > 0.05, which indicates that modelling LSBP as a spline does not provide significant improvement over the null model.}
+
+***
+
+## 6. Fit a logistic gam with LSBP, Lcholest and age modeled as splines. Quote the p-values for all predictors. Tell me which of the spline terms seem like they are worth modeling as a spline. Remember, you need to do an ANOVA for this with the null model having everything modeled as ordinary linear logistic regression, but use mgcv::gam.
+
+```{r}
+logitModel3 <- mgcv::gam(chd ~ s(age) + s(LSBP) + s(Lcholest) + Smoker, 
+                         data = framingham, family = binomial)
+summary(logitModel3)[["p.pv"]]
+anova(nullModel, logitModel3, test = "Chisq")
+
+```
+\hl{Answer:}
+
+\hl{The p-value = 0.02479 < 0.05 indicating statistical significance, which suggests that all spline terms (age, LSBP, Lcholest) seem to be worth modeling as splines, as they contribute significantly to the improvement of the model fit.}
+
+***
+
+## 7. This is an open-ended question with no absolutely correct answer. It will not be graded. Write a paragraph free of technical jargon about what things you think might be important in predicting who is at higher risk of getting coronary heart disease.
+
+In the analysis of factors influencing coronary heart disease (CHD), several key insights emerge. Our findings suggest that age, blood pressure (LSBP), cholesterol levels (Lcholest), and whether someone smokes play significant roles in predicting CHD risk. It's not just about whether these factors are there or not; it's more about how they change. Understanding these factors in a detailed way seems to be key. So, paying attention to the importance of age management, blood pressure control, cholesterol monitoring, and smoking cessation programs could be helpful lowering CHD risks.
+
+
+
+
+
+
+
+
+
+
+

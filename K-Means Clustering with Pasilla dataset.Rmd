@@ -1,0 +1,175 @@
+---
+header-includes:
+   - \usepackage{soul}
+   - \usepackage{color}
+output:
+     pdf_document:
+         latex_engine: xelatex
+         extra_dependencies: xcolor
+title:
+  Stat646 Statistical Bioinformatics
+  
+author:
+  Yuting Jia
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+set.seed(123)
+setwd("/users/yutingjia/desktop/STAT-646")
+# Load libraries
+library(ggplot2)
+library(ggdendro)
+```
+
+## 1. We will first use the pasilla data from Bioconductor. You can load the gene-level read count
+matrix using the script below.
+
+```{r}
+library(pasilla)
+pasCts = system.file("extdata", "pasilla_gene_counts.tsv", package = "pasilla", mustWork = TRUE)
+cts = as.matrix(read.csv(pasCts, sep = "\t", header = TRUE, row.names = 1))
+```
+
+## (a) What is the model organism being studied? How many genes and how many samples per condition were assayed?
+
+```{r}
+# FBgnxxxxxx is gene identifier. untreated/treated are diff conditions.
+
+# Count the number of unique genes
+num_genes = nrow(cts)
+
+conditions = colnames(cts)
+cond1 = sum(grepl("^untreated", conditions))
+cond1
+cond2 = sum(grepl("^treated", conditions))
+cond2
+```
+
+\hl{Answer:}
+
+\hl{Drosophila melanogaster is the model organism being studied. There are 14559 total number of genes. 4 samples in untreated condition, 3 samples in treated condition.}
+
+## (b) Compute the library size factor using the following three strategies, and generate a pairwise plot of the three sets of estimates.
+
+1. Total Count
+
+2. Median Ratio
+
+3. Quantile
+
+```{r}
+n = 7
+p = 14559
+
+ctsF = cts[rowSums(cts) != 0,]
+# Total count.
+size_factors_total = colSums(ctsF)
+size_factors_total
+# Median ratio.
+thetaj = exp((1/n)*log(colSums(ctsF)))
+size_factors_median = colMedians(ctsF / thetaj)
+size_factors_median
+# Quantile
+size_factors_quantile <- apply(cts, 2, quantile, probs = 0.75, na.rm = TRUE)  
+# na.rm = TRUE to handle potential NAs
+size_factors_quantile
+
+size_factors_data <- data.frame(
+  Total_Count = size_factors_total,
+  Median_Ratio = size_factors_median,
+  Quantile = size_factors_quantile
+)
+
+# Generate pairwise plot
+pairs(size_factors_data, pch = 16, col = c("blue", "red", "green"),
+      main = "Pairwise Plot of Library Size Factors",
+      labels = colnames(size_factors_data))
+
+```
+
+
+## 2. We will reuse the toy single-cell sequencing dataset of mouse liver from the Liver Cell Atlas (Guilliams et al., Cell 2022). The data has been subsetted, cleaned, and normalized. You will have the opportunity to learn these processes later on! For now, you can access the processed data from the “Data” tab under “Modules” in Canvas and use the readRDS function to read them.
+
+## 
+
+```{r}
+library(irlba)
+mouse_liver_annot <- readRDS("~/Desktop/STAT-646/mouse_liver_annot.RDS")
+mouse_liver_cts <- readRDS("~/Desktop/STAT-646/mouse_liver_cts.RDS")
+# "mouse_liver_cts.RDS" is a gene expression matrix,
+# "mouse_liver_annot.RDS" is an annotation file associated with the gene expression data.
+# e.g. Fam214a is a gene. / AAACCCATCAGGAAAT-37 is a cell.
+dim(mouse_liver_cts)
+tcts = t(mouse_liver_cts)
+# We have 2000 genes and 3802 cells assayed in this toy dataset.
+```
+
+## (a) You have previously carried out principal component analysis on this data. Now perform hierarchical clustering on the top 10 principal components, using complete linkage and Euclidean distance. Visualize your result. Bonus point: show colors on the dendrogram that correspond to the true underlying cell types.
+
+```{r}
+pca1 = prcomp_irlba(tcts, n=10)
+x = as.matrix(pca1$x)
+
+hcComplete = hclust(dist(x), method = "complete")
+dend = as.dendrogram(hcComplete)
+# There are 4 cell types, we cut dendrogram into 4 clusters.
+clusters = cutree(hcComplete, k=4)
+#############################################################################
+# Bonus
+#############################################################################
+library(dendextend)
+colorDend = color_branches(dend, col = mouse_liver_annot)
+plot(colorDend, main = "Hier. Clust. Dend. on First 10 PCs")
+legend("topright", legend = levels(mouse_liver_annot), col = unique(mouse_liver_annot),
+       title = "Cell Types", pch = 16)
+
+# dend %>% set("branches_k_color", k = 2) %>%
+#   plot(main = "Default colors")
+
+```
+
+
+## (b) Apply K-means clustering to the top 10 principal components: use a correlation-based distance metric (Pearson correlation) and silhouette score to determine the optimal number of clusters. Visualize your results.
+
+```{r}
+library(cluster)
+# Apply pearson correlation
+Pcor <-as.matrix(as.dist(1 - cor(t(x))))
+
+# Apply K-means clustering
+km.out = kmeans(Pcor, 4,nstart = 20)
+plot(Pcor, col = (km.out$cluster + 1), main = "K-Means Clustering Results with K=4", xlab = "", ylab = "", pch = 20, cex = 2)
+
+shtScore = function(k){
+  kmeans_sht = kmeans(x, centers = k, nstart = 20)
+  sht_score = silhouette(kmeans_sht$cluster, dist(x))
+  mean(sht_score[, 3])
+}
+
+k = 2:10
+avg_sil = sapply(k, shtScore)
+plot(k, type='b', avg_sil, xlab='Number of clusters', ylab='Average Silhouette Scores', frame=FALSE)
+
+```
+
+
+## (c) With this chosen number of cluster and its corresponding cluster assignment, output the confusion matrix (predicted cluster IDs by true underlying cell types) and compute the adjusted rand index (ARI).
+
+```{r}
+library(aricode)
+
+# K=2
+ARI(km.out$cluster, mouse_liver_annot)
+
+ARI(cutree(hcComplete, 4), mouse_liver_annot)
+ARI(cutree(hcComplete, 10), mouse_liver_annot)
+
+table(km.out$cluster)
+
+```
+
+
